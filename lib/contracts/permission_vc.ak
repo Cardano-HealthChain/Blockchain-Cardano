@@ -1,16 +1,23 @@
 // Permission/VC Script
+use contracts/common.{Result, Ok, Error}
 
 
-module contracts.permission_vc
 
-type Did = ByteArray
 
-type CredentialStatus {
+
+use aiken/collection/list
+
+pub type Did = ByteArray
+pub type Time = Int
+pub type Hash = ByteArray
+
+
+pub type CredentialStatus {
     Active
     Revoked { revoked_at: Time, reason: String }
 }
 
-type VerifiableCredential = {
+pub type VerifiableCredential {
     issuer: Did,
     subject: Did,
     issued_at: Time,
@@ -19,7 +26,7 @@ type VerifiableCredential = {
     schema_hash: Hash
 }
 
-type CredentialError {
+pub type CredentialError {
     UnauthorizedIssuer { issuer: Did }
     Expired { at: Time }
     AlreadyRevoked { revoked_at: Time }
@@ -27,10 +34,10 @@ type CredentialError {
 }
 
 fn is_trusted_issuer(issuer: Did, trusted: List<Did>) -> Bool {
-    trusted.contains(issuer)
+    list.has(trusted, issuer)
 }
 
-fn issue_vc(
+pub fn issue_vc(
     issuer: Did,
     subject: Did,
     issued_at: Time,
@@ -56,7 +63,7 @@ fn issue_vc(
     }
 }
 
-fn revoke_vc(
+pub fn revoke_vc(
     vc: VerifiableCredential,
     actor: Did,
     timestamp: Time,
@@ -69,7 +76,16 @@ fn revoke_vc(
             } else if timestamp < vc.issued_at {
                 Error(InvalidValidityRange { issued_at: vc.issued_at, expires_at: timestamp })
             } else {
-                Ok(vc { status: Revoked { revoked_at: timestamp, reason } })
+                Ok(
+                    VerifiableCredential {
+                        issuer: vc.issuer,
+                        subject: vc.subject,
+                        issued_at: vc.issued_at,
+                        expires_at: vc.expires_at,
+                        status: Revoked { revoked_at: timestamp, reason },
+                        schema_hash: vc.schema_hash
+                    }
+                )
             }
 
         Revoked { revoked_at, .. } ->
@@ -77,7 +93,7 @@ fn revoke_vc(
     }
 }
 
-fn extend_vc(
+pub fn extend_vc(
     vc: VerifiableCredential,
     actor: Did,
     new_expiry: Time,
@@ -87,22 +103,31 @@ fn extend_vc(
     } else if new_expiry <= vc.expires_at {
         Error(InvalidValidityRange { issued_at: vc.issued_at, expires_at: new_expiry })
     } else {
-        Ok(vc { expires_at: new_expiry })
+        Ok(
+            VerifiableCredential {
+                issuer: vc.issuer,
+                subject: vc.subject,
+                issued_at: vc.issued_at,
+                expires_at: new_expiry,
+                status: vc.status,
+                schema_hash: vc.schema_hash
+            }
+        )
     }
 }
 
-fn is_active(vc: VerifiableCredential) -> Bool {
+pub fn is_active(vc: VerifiableCredential) -> Bool {
     when vc.status is {
-        Active -> true
-        Revoked { .. } -> false
+        Active -> True
+        Revoked { .. } -> False
     }
 }
 
-fn is_valid(vc: VerifiableCredential, current_time: Time) -> Bool {
+pub fn is_valid(vc: VerifiableCredential, current_time: Time) -> Bool {
     is_active(vc) && current_time >= vc.issued_at && current_time <= vc.expires_at
 }
 
-fn assert_valid(vc: VerifiableCredential, current_time: Time) -> Result<(), CredentialError> {
+pub fn assert_valid(vc: VerifiableCredential, current_time: Time) -> Result<Void, CredentialError> {
     if !is_active(vc) {
         when vc.status is {
             Revoked { revoked_at, .. } ->
@@ -114,6 +139,6 @@ fn assert_valid(vc: VerifiableCredential, current_time: Time) -> Result<(), Cred
     } else if current_time < vc.issued_at || current_time > vc.expires_at {
         Error(Expired { at: current_time })
     } else {
-        Ok(())
+        Ok(Void)
     }
 }
